@@ -19,7 +19,8 @@ async function api(proc, input) {
 }
 const arr = (d) => (Array.isArray(d) ? d : d?.items ? d.items : d ? Object.values(d) : []);
 const hue = (id) => { let h = 0; for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) % 360; return `hsl(${h} 65% 50%)`; };
-const cColor = (id) => { const m = S.countries[id]?.mapAccent; return typeof m === 'string' ? m : hue(id); };
+const okColor = (v) => typeof v === 'string' && CSS.supports('color', v);
+const cColor = (id) => { const c = S.countries[id] || {}, sc = c.scheme; return [typeof sc === 'string' ? sc : null, ...(sc && typeof sc === 'object' ? Object.values(sc) : []), c.mapAccent].find(okColor) || hue(id); };
 const cName = (id) => S.countries[id]?.name || String(id || '?').slice(-6);
 const mine = () => S.country._id;
 const owned = () => new Set(Object.values(S.regions).filter((r) => r.country === mine()).map((r) => r._id));
@@ -51,10 +52,11 @@ async function loadAll() {
   try {
     setMsg('Loading regions...');
     S.regions = await api(CFG.EP.regions);
-    try { S.shapes = TopoMap.build((await api(CFG.EP.map)).map, S.regions); } catch (e) { S.shapes = null; S.topoErr = e.message; }
+    S.shapes = null; S.topoErr = ''; TopoMap.info = '';
+    try { const md = await api(CFG.EP.map); for (const k of ['map', 'innerCountriesTopo']) { try { S.shapes = TopoMap.build(md[k], S.regions); break; } catch (e) { S.topoErr += `${k}: ${e.message}; `; } } } catch (e) { S.topoErr = e.message; }
     const res = [...new Set(Object.values(S.regions).map((r) => Calc.norm(r.strategicResource)).filter(Boolean))];
     $('#f-res').innerHTML = '<option value="">All resources</option>' + res.map((k) => `<option value="${k}">${k}</option>`).join('');
-    drawMap(); renderBonus(); setMsg('');
+    drawMap(); renderBonus(); setMsg(S.shapes ? '' : 'Map shapes not matched, showing dots. Press Diagnose and send me the report. ' + S.topoErr, !S.shapes);
     loadEthics();
   } catch (e) { setMsg('Failed to load: ' + e.message + ' (use Diagnose)', true); }
 }
@@ -124,22 +126,23 @@ function drawMap() {
 }
 const paint = () => (S.shapes ? paintShapes() : paintDots());
 
-// Real map: one SVG path per region, colored by owner
+// Real map (game style): one path per region colored by owner, plus country borders
 function paintShapes() {
   const own = owned(), q = $('#search').value.toLowerCase(), fr = $('#f-res').value, fc = $('#f-claim').checked;
-  const rad = (S.shapes.bbox[2] - S.shapes.bbox[0]) / 450;
+  const sh = S.shapes, rad = (sh.bbox[2] - sh.bbox[0]) / 450;
   let paths = '', marks = '';
-  S.shapes.items.forEach((s) => {
+  sh.items.forEach((s) => {
     const r = S.regions[s.id];
-    if (!r) { paths += `<path d="${s.d}" fill="#e3e7ec" stroke="#fff" stroke-width=".4" vector-effect="non-scaling-stroke"/>`; return; }
+    if (!r) { paths += `<path d="${s.d}" fill="#1b2a3a" stroke="rgba(255,255,255,.12)" stroke-width=".4" vector-effect="non-scaling-stroke"/>`; return; }
     const isMine = own.has(r._id), plan = S.planned.has(r._id), can = !isMine && !plan && Calc.claimable(r, own, S.planned);
     const hide = (q && !String(r.name).toLowerCase().includes(q)) || (fr && Calc.norm(r.strategicResource) !== fr) || (fc && !can);
-    const stroke = S.sel === r._id ? '#111" stroke-width="2' : plan ? '#111" stroke-dasharray="4 2" stroke-width="1.5' : can ? cColor(mine()) + '" stroke-width="1.5' : '#fff" stroke-width=".4';
-    paths += `<path data-id="${r._id}" d="${s.d}" fill="${isMine || plan ? cColor(mine()) : cColor(r.country)}" fill-opacity="${hide ? 0.1 : isMine || plan ? 1 : 0.5}" stroke="${stroke}" vector-effect="non-scaling-stroke" style="cursor:pointer"/>`;
+    const stroke = S.sel === r._id ? '#fff" stroke-width="2.5' : plan ? '#fff" stroke-dasharray="4 2" stroke-width="1.8' : can ? '#ffd43b" stroke-width="1.8' : 'rgba(255,255,255,.22)" stroke-width=".4';
+    paths += `<path data-id="${r._id}" d="${s.d}" fill="${isMine || plan ? cColor(mine()) : cColor(r.country)}" fill-opacity="${hide ? 0.08 : isMine || plan ? 0.95 : 0.55}" stroke="${stroke}" vector-effect="non-scaling-stroke" style="cursor:pointer"/>`;
     const res = Calc.norm(r.strategicResource);
     if (res && !hide) marks += `<circle cx="${s.cx}" cy="${s.cy}" r="${rad}" fill="${CFG.RESOURCES[res] || '#999'}" stroke="#fff" stroke-width="${rad / 4}" pointer-events="none"/>`;
   });
-  $('#map').innerHTML = paths + marks;
+  const lines = `<path d="${sh.coast}" fill="none" stroke="rgba(255,255,255,.45)" stroke-width=".8" vector-effect="non-scaling-stroke" pointer-events="none"/><path d="${sh.border}" fill="none" stroke="#eef3f8" stroke-width="1.4" vector-effect="non-scaling-stroke" pointer-events="none"/>`;
+  $('#map').innerHTML = paths + lines + marks;
   $('#map').querySelectorAll('path[data-id]').forEach((p) => (p.onclick = () => clickRegion(p.dataset.id)));
 }
 
@@ -230,7 +233,7 @@ $('#diag').onclick = async () => {
     catch (e) { lines.push(`FAIL ${p}  ${e.message}  (CORS/auth/network?)`); }
   }
   lines.push('', `Party sample: ${JSON.stringify(S.party || null).slice(0, 600)}`, `Ethics parsed: ${JSON.stringify(S.ethics)}`);
-  lines.push('', 'Map: ' + (S.shapes ? 'polygons OK' : 'FALLBACK dots - ' + (S.topoErr || '')), TopoMap.info);
+  lines.push('', 'Map: ' + (S.shapes ? 'polygons OK' : 'FALLBACK dots - ' + (S.topoErr || '')), TopoMap.info, 'Country color fields: ' + JSON.stringify({ scheme: S.country.scheme, mapAccent: S.country.mapAccent }));
   $('#report').value = lines.join('\n'); $('#dlg').showModal();
 };
 $('#copy').onclick = () => { $('#report').select(); document.execCommand('copy'); };
