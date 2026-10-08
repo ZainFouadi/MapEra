@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WarEra SR Planner</title><link rel="stylesheet" href="style.css">
+</head><body>
+<section id="login" class="card center">
+  <h1>WarEra SR Planner</h1>
+  <label>Login method
+    <select id="auth-type"><option value="jwt">JWT</option><option value="token">In-game token</option><option value="none">No login (public data)</option></select></label>
+  <input id="auth-value" type="password" placeholder="Paste token">
+  <label>Country <select id="country"></select></label>
+  <button id="go">Continue</button><div id="login-msg" class="msg"></div>
+</section>
+<main id="app" hidden>
+  <header>
+    <b id="title"></b>
+    <input id="search" placeholder="Search region">
+    <select id="f-res"><option value="">All resources</option></select>
+    <label><input type="checkbox" id="f-claim"> Claimable only</label>
+    <button id="reset">Reset</button><button id="diag">Diagnose</button><button id="logout">Logout</button>
+  </header>
+  <div id="status" class="msg"></div>
+  <div class="layout">
+    <svg id="map"></svg>
+    <aside>
+      <div id="bonus" class="card"></div>
+      <div id="side" class="card">Click a region.</div>
+    </aside>
+  </div>
+</main>
+<dialog id="dlg"><textarea id="report" readonly></textarea><div><button id="copy">Copy</button><button id="close">Close</button></div></dialog>
+<script src="config.js"></script><script src="calc.js"></script><script src="app.js"></script>
+</body></html>
