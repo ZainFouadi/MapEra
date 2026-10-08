@@ -7,7 +7,7 @@ button{cursor:pointer}button:hover{border-color:var(--acc)}#go{background:var(--
 header{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 14px;background:var(--card);border-bottom:1px solid var(--line)}
 header b{margin-right:auto}.msg{padding:4px 14px;color:var(--dim);min-height:22px}.msg.err{color:var(--bad)}
 .layout{display:grid;grid-template-columns:1fr 340px;gap:10px;padding:10px}
-#map{width:100%;height:calc(100vh - 110px);background:#eef1f5;border:1px solid var(--line);border-radius:10px;touch-action:none}
+#map{width:100%;height:calc(100vh - 110px);background:#0e1a26;border:1px solid var(--line);border-radius:10px;touch-action:none}
 aside{overflow:auto;max-height:calc(100vh - 110px)}
 .row{display:flex;justify-content:space-between;gap:8px;padding:2px 0}.dim{color:var(--dim)}.big{font-size:22px;font-weight:700}
 .up{font-weight:600}.tag{font-size:12px;padding:1px 6px;border-radius:4px;background:var(--bg)}
