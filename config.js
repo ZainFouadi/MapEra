@@ -12,9 +12,13 @@ window.CFG = {
   BUILDINGS: [['bunker', 'Bunker'], ['base', 'Military Base'], ['pacification', 'Pacification']],
   OPERATING_H: 12,      // building takes this long to become active after an upgrade
   DEV_COOLDOWN_H: 8,    // default cooldown between upgrades of a region
-  // Party ethics, keyed by lowercase name without spaces. TODO: fill from the game.
+  // Party ethics are axes with a level (see party.getById -> ethics: militarism, isolationism,
+  // imperialism, industrialism = numbers, unethical = boolean). Fill the effects per axis and level.
   //   srBonus: extra production % on the specialization goods; devCooldownH: replaces DEV_COOLDOWN_H
   ETHICS: {
-    fanaticindustrialist: { label: 'Fanatic Industrialist', srBonus: 30 },
+    industrialism: { 2: { label: 'Fanatic Industrialist', srBonus: 30 } },
+    militarism: {},    // TODO e.g. { 2: { label: 'Fanatic Militarist', devCooldownH: 4 } }
+    isolationism: {},
+    imperialism: {},
   },
 };
