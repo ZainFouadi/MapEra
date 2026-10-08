@@ -18,6 +18,15 @@ const TopoMap = {
     });
     const regs = Object.values(regions), n = regs.length;
     let how = 'id', f = 0;
+    // y projections to try: lat as-is, mercator, and both negated (data may be y-down)
+    const merc = (l) => (Math.log(Math.tan(Math.PI / 4 + (l * Math.PI) / 360)) * 180) / Math.PI;
+    const ys = [(l) => l, merc, (l) => -l, (l) => -merc(l)];
+    const bestVariant = (pairs) => { // pairs: [[region, item]]; count region.position inside its own polygon
+      const step = Math.max(1, Math.floor(pairs.length / 250)), sample = pairs.filter((_, k) => k % step === 0);
+      let best = 0, bestN = -1;
+      ys.forEach((fy, k) => { const c = sample.filter(([r, i]) => inside(i.rings, r.position[0], fy(r.position[1]))).length; if (c > bestN) { bestN = c; best = k; } });
+      return { best, bestN, total: sample.length };
+    };
 
     // 1) match by id / code stored in the geometry
     const byKey = {}; regs.forEach((r) => { byKey[r._id] = r._id; if (r.code) byKey[String(r.code).toLowerCase()] = r._id; });
@@ -27,8 +36,6 @@ const TopoMap = {
     // 2) fallback: region city position inside the polygon (tries a few y projections)
     if (matched < n * 0.5) {
       how = 'position';
-      const merc = (l) => (Math.log(Math.tan(Math.PI / 4 + (l * Math.PI) / 360)) * 180) / Math.PI;
-      const ys = [(l) => l, merc, (l) => -l, (l) => -merc(l)];
       const withPos = regs.filter((r) => r.position);
       const hit = (px, py) => items.find((i) => i.bb[0] <= px && px <= i.bb[2] && i.bb[1] <= py && py <= i.bb[3] && inside(i.rings, px, py));
       const sample = withPos.filter((_, k) => k % Math.max(1, Math.floor(withPos.length / 200)) === 0);
@@ -40,15 +47,19 @@ const TopoMap = {
       f = best < 2 ? -1 : 1; // data y is north-up (best<2) -> flip for SVG
       how += ` (y-variant ${best})`;
     }
-    TopoMap.info += `[${how}] geometries: ${geoms.length}, matched: ${matched}/${n}, first geometry: ${JSON.stringify({ ...geoms[0], arcs: '...' })}; `;
+    TopoMap.info += `objects: ${Object.keys(topo.objects || {}).join(',')} [${how}] geometries: ${geoms.length}, matched: ${matched}/${n}, first geometry: ${JSON.stringify({ ...geoms[0], arcs: '...' })}; `;
     if (matched < n * 0.5) throw new Error(`only ${matched}/${n} regions matched`);
 
-    if (!f) { // id mode: detect orientation by correlating polygon centers with latitude
-      let my = 0, ml = 0, corr = 0; const m = items.filter((i) => i.id && regions[i.id].position);
-      m.forEach((i) => { i.cy0 = (i.bb[1] + i.bb[3]) / 2; my += i.cy0; ml += regions[i.id].position[1]; });
-      my /= m.length; ml /= m.length;
-      m.forEach((i) => (corr += (i.cy0 - my) * (regions[i.id].position[1] - ml)));
-      f = corr > 0 ? -1 : 1;
+    if (!f) { // id mode: find orientation by testing city positions inside their own polygons
+      const pairs = items.filter((i) => i.id && regions[i.id].position).map((i) => [regions[i.id], i]);
+      const v = bestVariant(pairs);
+      if (v.bestN > 0) { f = v.best < 2 ? -1 : 1; how += ` (y-variant ${v.best}, ${v.bestN}/${v.total} inside)`; }
+      else { // last resort: correlate polygon centers with latitude
+        let my = 0, ml = 0, corr = 0; pairs.forEach(([r, i]) => { i.cy0 = (i.bb[1] + i.bb[3]) / 2; my += i.cy0; ml += r.position[1]; });
+        my /= pairs.length; ml /= pairs.length; pairs.forEach(([r, i]) => (corr += (i.cy0 - my) * (r.position[1] - ml)));
+        f = corr > 0 ? -1 : 1; how += ' (correlation)';
+      }
+      TopoMap.info += `orientation: ${how.replace('id', '')} `;
     }
 
     const line = (a) => 'M' + arcs[a].map((p) => p[0].toFixed(1) + ',' + (p[1] * f).toFixed(1)).join('L');
