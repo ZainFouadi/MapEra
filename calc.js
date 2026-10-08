@@ -17,13 +17,12 @@ const Calc = {
     return { per, total };
   },
 
-  // Sum ethic effects. names: list of ethic names.
-  ethicEffects(names) {
+  // ethics: object like { industrialism: 2, militarism: 0, ... }
+  ethicEffects(ethics) {
     let srBonus = 0, devCooldownH = CFG.DEV_COOLDOWN_H; const used = [];
-    names.forEach((n) => {
-      const e = CFG.ETHICS[Calc.norm(n)]; if (!e) return;
-      used.push(e.label || n);
-      srBonus += e.srBonus || 0;
+    Object.entries(ethics || {}).forEach(([axis, level]) => {
+      const e = CFG.ETHICS[axis]?.[level]; if (!e) return;
+      used.push(e.label || `${axis} ${level}`); srBonus += e.srBonus || 0;
       if (e.devCooldownH != null) devCooldownH = Math.min(devCooldownH, e.devCooldownH);
     });
     return { srBonus, devCooldownH, used };
