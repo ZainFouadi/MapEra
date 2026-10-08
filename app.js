@@ -22,6 +22,8 @@ const hue = (id) => { let h = 0; for (const c of String(id)) h = (h * 31 + c.cha
 const okColor = (v) => typeof v === 'string' && CSS.supports('color', v);
 const cColor = (id) => { const c = S.countries[id] || {}, sc = c.scheme; return [typeof sc === 'string' ? sc : null, ...(sc && typeof sc === 'object' ? Object.values(sc) : []), c.mapAccent].find(okColor) || hue(id); };
 const cName = (id) => S.countries[id]?.name || String(id || '?').slice(-6);
+// search by region name, main city or owner country
+const matchQ = (r, q) => [r.name, r.mainCity, cName(r.country)].some((v) => String(v || '').toLowerCase().includes(q));
 const mine = () => S.country._id;
 const owned = () => new Set(Object.values(S.regions).filter((r) => r.country === mine()).map((r) => r._id));
 const setMsg = (t, err) => { const m = $('#status'); m.textContent = t || ''; m.className = 'msg' + (err ? ' err' : ''); };
@@ -103,7 +105,7 @@ function paintDots() {
     if (!r.position) return;
     const [x, y] = S.proj(r.position), isMine = own.has(r._id), plan = S.planned.has(r._id);
     const can = !isMine && !plan && Calc.claimable(r, own, S.planned);
-    let hide = (q && !String(r.name).toLowerCase().includes(q)) || (fr && Calc.norm(r.strategicResource) !== fr) || (fc && !can);
+    let hide = (q && !matchQ(r, q)) || (fr && Calc.norm(r.strategicResource) !== fr) || (fc && !can);
     const fill = isMine || plan ? cColor(mine()) : cColor(r.country);
     const op = hide ? 0.12 : isMine || plan ? 1 : 0.55;
     const res = Calc.norm(r.strategicResource);
@@ -130,19 +132,19 @@ const paint = () => (S.shapes ? paintShapes() : paintDots());
 function paintShapes() {
   const own = owned(), q = $('#search').value.toLowerCase(), fr = $('#f-res').value, fc = $('#f-claim').checked;
   const sh = S.shapes, rad = (sh.bbox[2] - sh.bbox[0]) / 450;
-  let paths = '', marks = '';
+  let paths = '', marks = '', under = '';
   sh.items.forEach((s) => {
     const r = S.regions[s.id];
-    if (!r) { paths += `<path d="${s.d}" fill="#1b2a3a" stroke="rgba(255,255,255,.12)" stroke-width=".4" vector-effect="non-scaling-stroke"/>`; return; }
+    if (!r) { under += `<path d="${s.d}" fill="#16222f" stroke="rgba(255,255,255,.08)" stroke-width=".4" vector-effect="non-scaling-stroke" pointer-events="none"/>`; return; }
     const isMine = own.has(r._id), plan = S.planned.has(r._id), can = !isMine && !plan && Calc.claimable(r, own, S.planned);
-    const hide = (q && !String(r.name).toLowerCase().includes(q)) || (fr && Calc.norm(r.strategicResource) !== fr) || (fc && !can);
+    const hide = (q && !matchQ(r, q)) || (fr && Calc.norm(r.strategicResource) !== fr) || (fc && !can);
     const stroke = S.sel === r._id ? '#fff" stroke-width="2.5' : plan ? '#fff" stroke-dasharray="4 2" stroke-width="1.8' : can ? '#ffd43b" stroke-width="1.8' : 'rgba(255,255,255,.22)" stroke-width=".4';
     paths += `<path data-id="${r._id}" d="${s.d}" fill="${isMine || plan ? cColor(mine()) : cColor(r.country)}" fill-opacity="${hide ? 0.08 : isMine || plan ? 0.95 : 0.55}" stroke="${stroke}" vector-effect="non-scaling-stroke" style="cursor:pointer"/>`;
     const res = Calc.norm(r.strategicResource);
     if (res && !hide) marks += `<circle cx="${s.cx}" cy="${s.cy}" r="${rad}" fill="${CFG.RESOURCES[res] || '#999'}" stroke="#fff" stroke-width="${rad / 4}" pointer-events="none"/>`;
   });
   const lines = `<path d="${sh.coast}" fill="none" stroke="rgba(255,255,255,.45)" stroke-width=".8" vector-effect="non-scaling-stroke" pointer-events="none"/><path d="${sh.border}" fill="none" stroke="#eef3f8" stroke-width="1.4" vector-effect="non-scaling-stroke" pointer-events="none"/>`;
-  $('#map').innerHTML = paths + lines + marks;
+  $('#map').innerHTML = under + paths + lines + marks;
   $('#map').querySelectorAll('path[data-id]').forEach((p) => (p.onclick = () => clickRegion(p.dataset.id)));
 }
 
@@ -238,5 +240,10 @@ $('#diag').onclick = async () => {
 };
 $('#copy').onclick = () => { $('#report').select(); document.execCommand('copy'); };
 $('#close').onclick = () => $('#dlg').close();
+
+// ---------- Theme ----------
+function applyTheme(t) { document.documentElement.dataset.theme = t; localStorage.setItem('wm_theme', t); $('#theme').textContent = t === 'dark' ? 'Light mode' : 'Dark mode'; }
+$('#theme').onclick = () => applyTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
+applyTheme(localStorage.getItem('wm_theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
 
 initLogin();
