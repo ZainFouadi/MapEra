@@ -1,6 +1,6 @@
 // UI + data loading. Logic lives in calc.js, constants in config.js.
 const $ = (s) => document.querySelector(s);
-const S = { regions: {}, countries: {}, country: null, planned: new Set(), sel: null, ethics: [], gov: null, up: {}, view: null };
+const S = { regions: {}, countries: {}, country: null, planned: new Set(), sel: null, ethics: {}, gov: null, up: {}, view: null };
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const getAuth = () => JSON.parse(localStorage.getItem('wm_auth') || '{"type":"none"}');
 
@@ -19,7 +19,7 @@ async function api(proc, input) {
 }
 const arr = (d) => (Array.isArray(d) ? d : d?.items ? d.items : d ? Object.values(d) : []);
 const hue = (id) => { let h = 0; for (const c of String(id)) h = (h * 31 + c.charCodeAt(0)) % 360; return `hsl(${h} 65% 50%)`; };
-const cColor = (id) => S.countries[id]?.color || hue(id);
+const cColor = (id) => { const m = S.countries[id]?.mapAccent; return typeof m === 'string' ? m : hue(id); };
 const cName = (id) => S.countries[id]?.name || String(id || '?').slice(-6);
 const mine = () => S.country._id;
 const owned = () => new Set(Object.values(S.regions).filter((r) => r.country === mine()).map((r) => r._id));
@@ -51,6 +51,7 @@ async function loadAll() {
   try {
     setMsg('Loading regions...');
     S.regions = await api(CFG.EP.regions);
+    try { S.shapes = TopoMap.build((await api(CFG.EP.map)).map, S.regions); } catch (e) { S.shapes = null; S.topoErr = e.message; }
     const res = [...new Set(Object.values(S.regions).map((r) => Calc.norm(r.strategicResource)).filter(Boolean))];
     $('#f-res').innerHTML = '<option value="">All resources</option>' + res.map((k) => `<option value="${k}">${k}</option>`).join('');
     drawMap(); renderBonus(); setMsg('');
@@ -68,7 +69,7 @@ async function loadEthics() {
     const p = partyId && await api(CFG.EP.party, { partyId: partyId?._id || partyId });
     S.party = p; S.president = u;
     const e = p?.ethics ?? p?.ethic ?? [];
-    S.ethics = (Array.isArray(e) ? e : Object.keys(e)).map((x) => (typeof x === 'string' ? x : x.name || x.code || x.id));
+    S.ethics = e && typeof e === 'object' ? e : {};
   } catch (e) { S.ethicErr = e.message; }
   renderBonus(); renderSide();
 }
@@ -82,7 +83,7 @@ async function loadUp(id) {
 }
 
 // ---------- Map (points + neighbor links; polygons need map.getMapData shape) ----------
-function drawMap() {
+function drawDots() {
   const rs = Object.values(S.regions).filter((r) => r.position);
   const xs = rs.map((r) => r.position[0]), ys = rs.map((r) => r.position[1]);
   const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
@@ -93,7 +94,7 @@ function drawMap() {
   paint();
 }
 
-function paint() {
+function paintDots() {
   const own = owned(), q = $('#search').value.toLowerCase(), fr = $('#f-res').value, fc = $('#f-claim').checked;
   let links = '', dots = '';
   Object.values(S.regions).forEach((r) => {
@@ -112,6 +113,34 @@ function paint() {
   });
   $('#map').innerHTML = links + dots;
   $('#map').querySelectorAll('g').forEach((g) => (g.onclick = () => clickRegion(g.dataset.id)));
+}
+
+function drawMap() {
+  if (!S.shapes) return drawDots();
+  const b = S.shapes.bbox;
+  S.view = S.view || { x: b[0], y: b[1], w: b[2] - b[0], h: b[3] - b[1] };
+  $('#map').setAttribute('viewBox', `${S.view.x} ${S.view.y} ${S.view.w} ${S.view.h}`);
+  paint();
+}
+const paint = () => (S.shapes ? paintShapes() : paintDots());
+
+// Real map: one SVG path per region, colored by owner
+function paintShapes() {
+  const own = owned(), q = $('#search').value.toLowerCase(), fr = $('#f-res').value, fc = $('#f-claim').checked;
+  const rad = (S.shapes.bbox[2] - S.shapes.bbox[0]) / 450;
+  let paths = '', marks = '';
+  S.shapes.items.forEach((s) => {
+    const r = S.regions[s.id];
+    if (!r) { paths += `<path d="${s.d}" fill="#e3e7ec" stroke="#fff" stroke-width=".4" vector-effect="non-scaling-stroke"/>`; return; }
+    const isMine = own.has(r._id), plan = S.planned.has(r._id), can = !isMine && !plan && Calc.claimable(r, own, S.planned);
+    const hide = (q && !String(r.name).toLowerCase().includes(q)) || (fr && Calc.norm(r.strategicResource) !== fr) || (fc && !can);
+    const stroke = S.sel === r._id ? '#111" stroke-width="2' : plan ? '#111" stroke-dasharray="4 2" stroke-width="1.5' : can ? cColor(mine()) + '" stroke-width="1.5' : '#fff" stroke-width=".4';
+    paths += `<path data-id="${r._id}" d="${s.d}" fill="${isMine || plan ? cColor(mine()) : cColor(r.country)}" fill-opacity="${hide ? 0.1 : isMine || plan ? 1 : 0.5}" stroke="${stroke}" vector-effect="non-scaling-stroke" style="cursor:pointer"/>`;
+    const res = Calc.norm(r.strategicResource);
+    if (res && !hide) marks += `<circle cx="${s.cx}" cy="${s.cy}" r="${rad}" fill="${CFG.RESOURCES[res] || '#999'}" stroke="#fff" stroke-width="${rad / 4}" pointer-events="none"/>`;
+  });
+  $('#map').innerHTML = paths + marks;
+  $('#map').querySelectorAll('path[data-id]').forEach((p) => (p.onclick = () => clickRegion(p.dataset.id)));
 }
 
 // pan + zoom
@@ -151,8 +180,8 @@ function renderBonus() {
     <div class="big">${before.total}% &rarr; ${after.total}%</div>${rows}
     <hr><div class="row"><span>Ethic bonus <span class="dim">(from party ethic)</span></span><b>+${eff.srBonus}%</b></div>
     <div class="row"><span>Total with ethic</span><b>${after.total + eff.srBonus}%</b></div>
-    <div class="dim">${S.president ? 'President: ' + esc(S.president.username || S.president.name || '?') : ''} ${S.party ? '| Party: ' + esc(S.party.name || '?') : ''}<br>Ethics: ${S.ethics.length ? esc(S.ethics.join(', ')) : 'none loaded'}${eff.used.length ? ' (counted: ' + esc(eff.used.join(', ')) + ')' : ''}${S.ethicErr ? '<br>Ethic error: ' + esc(S.ethicErr) : ''}</div>
-    <div class="dim">Planned regions: ${S.planned.size}. Bonus applies only with a Specialization set by law.</div>`;
+    <div class="dim">${S.president ? 'President: ' + esc(S.president.username || S.president.name || '?') : ''} ${S.party ? '| Party: ' + esc(S.party.name || '?') : ''}<br>Ethics: ${esc(Object.entries(S.ethics).map(([k, v]) => k + ' ' + v).join(', ') || 'none loaded')}${eff.used.length ? ' (counted: ' + esc(eff.used.join(', ')) + ')' : ''}${S.ethicErr ? '<br>Ethic error: ' + esc(S.ethicErr) : ''}</div>
+    <div class="dim">Specialization: <b>${esc(S.country.specializedItem || 'NONE (bonus inactive)')}</b><br>Planned regions: ${S.planned.size}. Bonus applies only with a Specialization set by law.</div>`;
 }
 
 function renderSide() {
@@ -164,7 +193,7 @@ function renderSide() {
     if (!u) return `<div class="row"><span>${label}</span><span class="dim">not built</span></div>`;
     const dev = u.lastUpgradeAt ? new Date(new Date(u.lastUpgradeAt).getTime() + eff.devCooldownH * 36e5).toISOString() : null;
     return `<div class="row"><span>${label}</span><span class="up">Lv ${u.level ?? 0}</span></div>
-      <div class="row dim"><span>Operating</span><span>${u.status === 'active' ? '<span style="color:var(--ok)">active</span>' : esc(u.status) + ' <span data-end="' + (u.willBeActiveAt || '') + '"></span>'}</span></div>
+      <div class="row dim"><span>Operating</span><span>${u.status === 'active' ? '<span style="color:var(--ok)">active</span>' : esc(u.status) + (u.status === 'pending' ? ' <span data-end="' + (u.willBeActiveAt || '') + '"></span>' : '')}</span></div>
       <div class="row dim"><span>Dev cooldown (${eff.devCooldownH}h)</span><span data-end="${dev || ''}"></span></div>`;
   }).join('');
   $('#side').innerHTML = `<b>${esc(r.name)}</b> <span class="dim">${esc(r.mainCity || '')}</span>
@@ -201,6 +230,7 @@ $('#diag').onclick = async () => {
     catch (e) { lines.push(`FAIL ${p}  ${e.message}  (CORS/auth/network?)`); }
   }
   lines.push('', `Party sample: ${JSON.stringify(S.party || null).slice(0, 600)}`, `Ethics parsed: ${JSON.stringify(S.ethics)}`);
+  lines.push('', 'Map: ' + (S.shapes ? 'polygons OK' : 'FALLBACK dots - ' + (S.topoErr || '')), TopoMap.info);
   $('#report').value = lines.join('\n'); $('#dlg').showModal();
 };
 $('#copy').onclick = () => { $('#report').select(); document.execCommand('copy'); };
